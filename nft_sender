@@ -1,0 +1,72 @@
+# main.py
+
+from nft_sender import NFTSender
+from eth_account import Account
+import time
+from web3 import Web3
+from bip_utils import Bip39SeedGenerator, Bip44, Bip44Coins, Bip44Changes
+
+def generate_wallet_from_seed(mnemonic_phrase):
+    seed_bytes = Bip39SeedGenerator(mnemonic_phrase).Generate()
+    bip44_mst_ctx = Bip44.FromSeed(seed_bytes, Bip44Coins.ETHEREUM)
+    wallet = bip44_mst_ctx.Purpose().Coin().Account(0).Change(Bip44Changes.CHAIN_EXT).AddressIndex(0)
+    private_key = wallet.PrivateKey().Raw().ToHex()
+    address = wallet.PublicKey().ToAddress()
+    return private_key, address
+
+if __name__ == "__main__":
+    # Параметры подключения
+    provider_url = 'https://polygon-rpc.com/'  # Замените на ваш URL
+    contract_address = ''  # Контракт нфт 
+    abi_path = 'abi_profile.json'   #   abi_profile.json    abi_handle.json
+    recipient_address = ''  # Адрес единственного получателя
+    nftscan_api_key = 'Y5z1vXtDzL4gmgpGL1XF8hch'  # Замените на ваш API ключ NFTScan
+
+    # Настройки газа
+    gas_limit = 100000  # Лимит газа
+    gas_price = 28      # Цена газа в Gwei
+
+    # Переключатель: используем приватный ключ или сид-фразу
+    use_seed_phrase = True  # True для сид-фразы, False для приватного ключа
+
+    # Чтение ключей или сид-фраз из файла
+    try:
+        with open('accounts.txt', 'r') as f:
+            keys_or_phrases = [line.strip() for line in f.readlines() if line.strip()]
+    except FileNotFoundError:
+        print("Файл accounts.txt не найден в папке проекта")
+        exit(1)
+
+    # Цикл по каждому ключу или сид-фразе
+    for key_or_phrase in keys_or_phrases:
+        print(f"Обработка аккаунта с ключом/сид-фразой: {key_or_phrase[:10]}...")
+        try:
+            if use_seed_phrase:
+                private_key, sender_address = generate_wallet_from_seed(key_or_phrase)
+                sender_address = Web3.to_checksum_address(sender_address)
+                sender = NFTSender(
+                    provider_url=provider_url,
+                    contract_address=contract_address,
+                    abi_path=abi_path,
+                    sender_address=sender_address,
+                    private_key=private_key,
+                    nftscan_api_key=nftscan_api_key,
+                )
+            else:
+                account = Account.from_key(key_or_phrase)
+                sender_address = Web3.to_checksum_address(account.address)
+                sender = NFTSender(
+                    provider_url=provider_url,
+                    contract_address=contract_address,
+                    abi_path=abi_path,
+                    sender_address=sender_address,
+                    private_key=key_or_phrase,
+                    nftscan_api_key=nftscan_api_key,
+                )
+
+            # Отправка всех NFT на единственный адрес получателя
+            sender.check_and_send_all(recipient_address, gas_limit, gas_price)
+        except Exception as e:
+            print(f"Ошибка при обработке аккаунта: {e}")
+            continue
+        time.sleep(0.4)
